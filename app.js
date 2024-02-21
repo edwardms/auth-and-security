@@ -5,7 +5,8 @@ const bodyParser = require('body-parser');
 //const ejs = require('ejs');
 const mongoose = require('mongoose');
 //const mongooseEncryption = require('mongoose-encryption');
-const md5 = require('md5');
+//const md5 = require('md5');
+const bcryptJs = require('bcryptjs');
 
 const app = express();
 
@@ -26,6 +27,7 @@ const userSchema = new mongoose.Schema(
     }
 );
 
+const salt = process.env.SALT;
 //const secret = process.env.SECRET;
 
 // userSchema.plugin(mongooseEncryption,
@@ -48,7 +50,7 @@ app.route('/register')
         const newUser = new User(
             {
                 email: req.body.username,
-                password: md5(req.body.password)
+                password: bcryptJs.hashSync(req.body.password, salt)
             }
         );
 
@@ -64,16 +66,17 @@ app.route('/register')
 
 app.route('/login')
     .get( (req, res) => {
-        res.render('login.ejs');        
+        res.render('login.ejs');
     })
     .post( (req, res) => {
         const username = req.body.username;
-        const password = req.body.password;
 
         User.findOne({email: username})
             .then( foundUser => {
-                if (foundUser) {
-                    if (foundUser.password === password) res.render('secrets.ejs');
+                if (foundUser) {                    
+                    const password = req.body.password;
+                    
+                    if ( bcryptJs.compareSync(password, foundUser.password) ) res.render('secrets.ejs');
                     else res.redirect('/login');
                 }
                 else res.redirect('/login');          
@@ -82,7 +85,24 @@ app.route('/login')
                 console.log(err);
             });
     });
-    
+
+app.route('/logout')
+    .get( (req, res) => {
+        res.redirect('/');    
+    });
+
+app.route('/submit')
+    .get( (req, res) => {
+        res.render('submit.ejs');    
+    })
+    .post( (req, res) => {
+        res.redirect('/secrets');    
+    });
+
+app.route('/secrets')
+    .get( (req, res) => {
+        res.render('secrets.ejs'); 
+    });
 /*
 get'/'
 get+post'/login'
