@@ -2,17 +2,29 @@ require('dotenv').config();
 
 const express = require('express');
 const bodyParser = require('body-parser');
-//const ejs = require('ejs');
 const mongoose = require('mongoose');
-//const mongooseEncryption = require('mongoose-encryption');
-//const md5 = require('md5');
-const bcryptJs = require('bcryptjs');
+const session = require('express-session');
+const passport = require('passport');
+const passportLocalMongoose = require('passport-local-mongoose');
 
 const app = express();
 
-app.set('view engine', 'ejs');
-app.use(express.static('public'));
-app.use(bodyParser.urlencoded({ extended: true }));
+app.set( 'view engine', 'ejs' );
+app.use( express.static('public') );
+app.use( bodyParser.urlencoded(
+    {
+        extended: true
+    })
+);
+app.use( session(
+    {
+        secret: process.env.SECRET,
+        resave: false,
+        saveUninitialized: false
+    }
+));
+app.use( passport.initialize() );
+app.use( passport.session() );
 
 const userSchema = new mongoose.Schema(
     {
@@ -26,17 +38,12 @@ const userSchema = new mongoose.Schema(
         }
     }
 );
-
-const salt = process.env.SALT;
-//const secret = process.env.SECRET;
-
-// userSchema.plugin(mongooseEncryption,
-//                  {
-//                     secret: secret,
-//                     encryptedFields: ['password']
-//                  });
-
+userSchema.plugin(passportLocalMongoose);
 const User = new mongoose.model('user', userSchema);
+
+passport.use( User.createStrategy() );
+passport.serializeUser( User.serializeUser() );
+passport.deserializeUser( User.deserializeUser() );
 
 app.get('/', (req, res) => {
     res.render('home.ejs');
@@ -47,21 +54,16 @@ app.route('/register')
         res.render('register.ejs');
     })
     .post( (req, res) => {
-        const newUser = new User(
-            {
-                email: req.body.username,
-                password: bcryptJs.hashSync(req.body.password, salt)
-            }
-        );
-
-        newUser.save()
-            .then( () => {
-                console.log('User saved');
-                res.render('secrets.ejs')
-            })
-            .catch( err => {
+        User.register( {username: req.body.username}, req.body.password, (err, user) => {
+            if (err) {
                 console.log(err);
-            });
+                res.redirect('/register');
+            } else {
+                passport.authenticate('local')(req, res, () => {
+                    res.redirect('/secrets');
+                });
+            }
+        } );
     })
 
 app.route('/login')
@@ -69,26 +71,31 @@ app.route('/login')
         res.render('login.ejs');
     })
     .post( (req, res) => {
-        const username = req.body.username;
+        const user = new User(
+            {
+                username: req.body.username,
+                password: req.body.password
+            }
+        );
 
-        User.findOne({email: username})
-            .then( foundUser => {
-                if (foundUser) {                    
-                    const password = req.body.password;
-                    
-                    if ( bcryptJs.compareSync(password, foundUser.password) ) res.render('secrets.ejs');
-                    else res.redirect('/login');
-                }
-                else res.redirect('/login');          
-            })
-            .catch( err => {
+        req.logIn(user, (err) => {
+            if (err) {
                 console.log(err);
-            });
+                res.redirect('/login');
+            } else {
+                passport.authenticate('local')(req, res, () => {
+                    res.redirect('/secrets');
+                });
+            }
+        });
     });
 
 app.route('/logout')
     .get( (req, res) => {
-        res.redirect('/');    
+        req.logout( (err) => {
+            if (err) console.log(err);
+            res.redirect('/');
+        });
     });
 
 app.route('/submit')
@@ -101,14 +108,9 @@ app.route('/submit')
 
 app.route('/secrets')
     .get( (req, res) => {
-        res.render('secrets.ejs'); 
+        if ( req.isAuthenticated() ) res.render('secrets.ejs'); 
+        else res.redirect('/login');
     });
-/*
-get'/'
-get+post'/login'
-get+post'/register'
-get+post'/submit'
-*/
 
 mongoose.connect('mongodb://127.0.0.1:27017/userDB')
     .then( () => {
